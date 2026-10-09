@@ -1,18 +1,18 @@
 # Installation manual
 
-This manual is written for the person who will run PrintBoss on their own Windows computer. No programming knowledge is needed. It takes about ten minutes.
+This manual is for you if you'll run PrintBoss on your own Windows computer. You don't need any programming knowledge. The whole job takes about ten minutes.
 
 ## 11.1 What you need
 
 - Windows 10 or 11 with at least 2 GB of free disk space.
 - WAMP Server 3.3 or newer (free, from wampserver.com). XAMPP works the same way; the folder names differ as noted below.
-- The PrintBoss zip file from the submission, or a download of the GitHub repository.
+- The PrintBoss zip file from the submission or a download of the GitHub repository.
 - A modern browser: Chrome, Edge or Firefox.
 
 ## 11.2 Step 1: install WAMP
 
 1. Download WAMP Server 64-bit and run the installer with the default options. If the installer asks for Visual C++ redistributables, install them from the link it shows.
-2. Start WAMP from the Start menu. The icon in the system tray turns green when Apache and MySQL are running. If it stays orange, another program (often Skype or IIS) is using port 80; use the WAMP tray menu to change Apache's port, or close that program.
+2. Start WAMP from the Start menu. The icon in the system tray turns green when Apache and MySQL are running. If it stays orange, another program (often Skype or IIS) is using port 80; use the WAMP tray menu to change Apache's port or close that program.
 3. Open `http://localhost/` in your browser. You should see the WAMP home page.
 
 ## 11.3 Step 2: copy the application
@@ -64,4 +64,4 @@ Change `DB_PASS` only if you gave MySQL's root user a password. Save and close.
 
 ## 11.8 Uninstall
 
-Delete `C:\wamp64\www\printboss` and drop the `printboss` database in phpMyAdmin. Nothing else is written to the computer.
+Delete `C:\wamp64\www\printboss` and drop the `printboss` database in phpMyAdmin. PrintBoss writes nothing else to the computer.
