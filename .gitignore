@@ -1,0 +1,9 @@
+# local config overrides
+includes/config.local.php
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+# logs
+*.log
