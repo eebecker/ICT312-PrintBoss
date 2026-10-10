@@ -29,8 +29,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $reason = post_str('reason', 60);
             $type = $mode === 'add' ? 'Stock Added' : ($reason === 'Manual Adjustment' ? 'Manual Adjustment' : 'Stock Reduced');
             $note = trim($reason . ($reason && post_str('note', 255) ? ': ' : '') . post_str('note', 255));
-            move_stock($uid, $id, $mode === 'add' ? $qty : -$qty, $type, [], $note ?: null);
-            flash('success', $mode === 'add' ? "Added {$qty} units." : "Removed {$qty} units.");
+            try {
+                move_stock($uid, $id, $mode === 'add' ? $qty : -$qty, $type, [], $note ?: null);
+                flash('success', $mode === 'add' ? "Added {$qty} units." : "Removed {$qty} units.");
+            } catch (Throwable $t) {
+                flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not adjust stock. No stock was changed.');
+            }
         }
         redirect('stock.php');
     }
@@ -56,15 +60,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash('success', 'Stock product updated.');
             }
         } else {
-            $qty = max(0, post_int('current_quantity', 0));
-            $status = derive_stock_status($qty, $data['minimum_quantity'], $inactive ? 'Inactive' : 'In Stock');
-            q('INSERT INTO stock_items (product_name, sku, category, description, minimum_quantity, unit_cost, selling_price, location, notes, current_quantity, status, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-                [...array_values($data), $qty, $status, $uid]);
-            $newId = (int)db()->lastInsertId();
-            if ($qty > 0) {
-                q('INSERT INTO stock_movements (user_id, stock_item_id, movement_type, quantity_changed, previous_quantity, new_quantity, note) VALUES (?,?,"Stock Added",?,0,?,"Opening quantity")', [$uid, $newId, $qty, $qty]);
+            $pdo = db();
+            $pdo->beginTransaction();
+            try {
+                $qty = max(0, post_int('current_quantity', 0));
+                $status = derive_stock_status($qty, $data['minimum_quantity'], $inactive ? 'Inactive' : 'In Stock');
+                q('INSERT INTO stock_items (product_name, sku, category, description, minimum_quantity, unit_cost, selling_price, location, notes, current_quantity, status, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                    [...array_values($data), $qty, $status, $uid]);
+                $newId = (int)db()->lastInsertId();
+                if ($qty > 0) {
+                    q('INSERT INTO stock_movements (user_id, stock_item_id, movement_type, quantity_changed, previous_quantity, new_quantity, note) VALUES (?,?,"Stock Added",?,0,?,"Opening quantity")', [$uid, $newId, $qty, $qty]);
+                }
+                flash('success', 'Stock product created.');
+                $pdo->commit();
+            } catch (Throwable $t) {
+                $pdo->rollBack();
+                flash('error', 'Could not create the product. No stock was changed.');
             }
-            flash('success', 'Stock product created.');
         }
         redirect('stock.php');
     }
