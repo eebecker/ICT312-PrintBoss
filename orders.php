@@ -39,27 +39,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = post_id('id');
 
     if ($action === 'delete' && $id) {
-        $o = row('SELECT * FROM orders WHERE id = ? AND user_id = ?', [$id, $uid]);
-        if ($o) {
-            if ($o['stock_item_id'] && (int)$o['stock_deducted'] > 0) {
-                move_stock($uid, (int)$o['stock_item_id'], (int)$o['stock_deducted'], 'Order Cancelled', [], "Order #{$id} deleted");
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $o = row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
+            if ($o) {
+                if ($o['stock_item_id'] && (int)$o['stock_deducted'] > 0) {
+                    move_stock($uid, (int)$o['stock_item_id'], (int)$o['stock_deducted'], 'Order Cancelled', [], "Order #{$id} deleted");
+                }
+                q('DELETE FROM orders WHERE id = ? AND user_id = ?', [$id, $uid]);
             }
-            q('DELETE FROM orders WHERE id = ? AND user_id = ?', [$id, $uid]);
-            flash('success', 'Order deleted and any reserved stock returned.');
+            $pdo->commit();
+            if ($o) flash('success', 'Order deleted and any reserved stock returned.');
+        } catch (Throwable $t) {
+            $pdo->rollBack();
+            flash('error', 'Could not delete the order. No stock was changed.');
         }
         redirect('orders.php');
     }
 
     if ($action === 'status' && $id) {
-        $o = row('SELECT * FROM orders WHERE id = ? AND user_id = ?', [$id, $uid]);
         $status = post_str('status', 20);
-        if ($o && in_array($status, $STATUSES, true)) {
+        if (in_array($status, $STATUSES, true)) {
             $pdo = db();
             $pdo->beginTransaction();
-            $deducted = sync_order_stock($uid, $id, $o['stock_item_id'] ? (int)$o['stock_item_id'] : null, $status, (int)$o['order_quantity'], (int)$o['stock_deducted'], $o['stock_item_id'] ? (int)$o['stock_item_id'] : null, $o['customer_name']);
-            q('UPDATE orders SET status = ?, stock_deducted = ? WHERE id = ?', [$status, $deducted, $id]);
-            $pdo->commit();
-            flash('success', "Order #{$id} is now {$status}.");
+            try {
+                $o = row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
+                if ($o) {
+                    $deducted = sync_order_stock($uid, $id, $o['stock_item_id'] ? (int)$o['stock_item_id'] : null, $status, (int)$o['order_quantity'], (int)$o['stock_deducted'], $o['stock_item_id'] ? (int)$o['stock_item_id'] : null, $o['customer_name']);
+                    q('UPDATE orders SET status = ?, stock_deducted = ? WHERE id = ? AND user_id = ?', [$status, $deducted, $id, $uid]);
+                }
+                $pdo->commit();
+                if ($o) flash('success', "Order #{$id} is now {$status}.");
+            } catch (Throwable $t) {
+                $pdo->rollBack();
+                flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not update the order. No stock was changed.');
+            }
         }
         redirect('orders.php');
     }
@@ -98,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
         try {
             if ($id) {
-                $old = row('SELECT * FROM orders WHERE id = ? AND user_id = ?', [$id, $uid]);
+                $old = row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
                 if ($old) {
                     $deducted = sync_order_stock($uid, $id, $stockId, $status, $qty, (int)$old['stock_deducted'], $old['stock_item_id'] ? (int)$old['stock_item_id'] : null, $data['customer_name']);
                     q('UPDATE orders SET customer_id=?, customer_name=?, product_name=?, status=?, stock_item_id=?, printer_id=?, order_quantity=?, material_used=?, grams_used=?, print_time=?, labour_time=?, unit_cost=?, unit_selling_price=?, total_cost=?, total_selling_price=?, total_profit=?, profit_margin=?, delivery_date=?, notes=?, stock_deducted=? WHERE id=? AND user_id=?',
@@ -116,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
         } catch (Throwable $t) {
             $pdo->rollBack();
-            flash('error', 'Could not save the order: ' . $t->getMessage());
+            flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not save the order. No stock was changed.');
         }
         redirect('orders.php');
     }

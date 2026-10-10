@@ -187,21 +187,39 @@ function derive_stock_status(int $qty, int $min, string $current): string
  */
 function move_stock(int $uid, int $stockId, int $delta, string $type, array $refs = [], ?string $note = null): bool
 {
-    $item = row('SELECT * FROM stock_items WHERE id = ? AND user_id = ?', [$stockId, $uid]);
-    if (!$item) {
-        return false;
+    $pdo = db();
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) {
+        $pdo->beginTransaction();
     }
-    $prev = (int)$item['current_quantity'];
-    $new = max(0, $prev + $delta);
-    $status = derive_stock_status($new, (int)$item['minimum_quantity'], $item['status']);
-    q('UPDATE stock_items SET current_quantity = ?, status = ? WHERE id = ?', [$new, $status, $stockId]);
-    q('INSERT INTO stock_movements (user_id, stock_item_id, movement_type, quantity_changed, previous_quantity, new_quantity, order_id, print_job_id, printer_id, successful_quantity, failed_quantity, note)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [
-        $uid, $stockId, $type, $new - $prev, $prev, $new,
-        $refs['order_id'] ?? null, $refs['print_job_id'] ?? null, $refs['printer_id'] ?? null,
-        $refs['successful_quantity'] ?? null, $refs['failed_quantity'] ?? null, $note,
-    ]);
-    return true;
+    try {
+        $item = row('SELECT * FROM stock_items WHERE id = ? AND user_id = ? FOR UPDATE', [$stockId, $uid]);
+        if (!$item) {
+            throw new RuntimeException('Stock product not found.');
+        }
+        $prev = (int)$item['current_quantity'];
+        $new = $prev + $delta;
+        if ($new < 0) {
+            throw new RuntimeException('Not enough stock available.');
+        }
+        $status = derive_stock_status($new, (int)$item['minimum_quantity'], $item['status']);
+        q('UPDATE stock_items SET current_quantity = ?, status = ? WHERE id = ? AND user_id = ?', [$new, $status, $stockId, $uid]);
+        q('INSERT INTO stock_movements (user_id, stock_item_id, movement_type, quantity_changed, previous_quantity, new_quantity, order_id, print_job_id, printer_id, successful_quantity, failed_quantity, note)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [
+            $uid, $stockId, $type, $delta, $prev, $new,
+            $refs['order_id'] ?? null, $refs['print_job_id'] ?? null, $refs['printer_id'] ?? null,
+            $refs['successful_quantity'] ?? null, $refs['failed_quantity'] ?? null, $note,
+        ]);
+        if ($ownTransaction) {
+            $pdo->commit();
+        }
+        return true;
+    } catch (Throwable $t) {
+        if ($ownTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $t;
+    }
 }
 
 /* ---------------------------------------------------------------
