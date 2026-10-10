@@ -63,6 +63,8 @@ Click **Service** on a printer to log maintenance (nozzle change, bed cleaning a
 
 Back in the list, click **Mark sent** when you email it, **Payment** to record a partial payment and **Mark paid** once the customer settles the balance. Sent invoices past their due date are flagged Overdue automatically.
 
+New invoices save their GST rate. Changing the rate in Settings affects new invoices; viewing or editing an invoice with a saved rate keeps its original rate. Older invoices without a saved rate show the recorded GST amount without a percentage. Their edit form warns that saving will recalculate GST at the current Settings rate.
+
 
 
 ## 12.9 Dashboard

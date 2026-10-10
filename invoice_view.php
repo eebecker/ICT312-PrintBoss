@@ -64,7 +64,7 @@ require __DIR__ . '/includes/header.php';
   <div class="totals">
     <div><span>Subtotal</span><span><?= money($inv['subtotal'], $currency) ?></span></div>
     <?php if ((float)$inv['discount'] > 0): ?><div><span>Discount</span><span>-<?= money($inv['discount'], $currency) ?></span></div><?php endif; ?>
-    <?php if ((int)$inv['gst_enabled']): ?><div><span>GST (<?= e(rtrim(rtrim(number_format((float)$profile['gst_rate'], 2), '0'), '.')) ?>%)</span><span><?= money($inv['gst_amount'], $currency) ?></span></div><?php endif; ?>
+    <?php if ((int)$inv['gst_enabled']): ?><div><span>GST<?= $inv['gst_rate'] !== null ? ' (' . e(rtrim(rtrim(number_format((float)$inv['gst_rate'], 2), '0'), '.')) . '%)' : '' ?></span><span><?= money($inv['gst_amount'], $currency) ?></span></div><?php endif; ?>
     <div class="grand"><span>Total</span><span><?= money($inv['total_amount'], $currency) ?></span></div>
     <?php if ((float)$inv['amount_paid'] > 0): ?><div><span>Paid</span><span>-<?= money($inv['amount_paid'], $currency) ?></span></div><div style="font-weight:700"><span>Balance due</span><span><?= money($inv['balance_due'], $currency) ?></span></div><?php endif; ?>
   </div>

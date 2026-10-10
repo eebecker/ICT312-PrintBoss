@@ -320,6 +320,7 @@ CREATE TABLE invoices (
   subtotal             DECIMAL(10,2) NOT NULL DEFAULT 0,
   discount             DECIMAL(10,2) NOT NULL DEFAULT 0,
   gst_enabled          TINYINT(1) NOT NULL DEFAULT 1,
+  gst_rate             DECIMAL(5,2) NULL DEFAULT NULL,
   gst_amount           DECIMAL(10,2) NOT NULL DEFAULT 0,
   total_amount         DECIMAL(10,2) NOT NULL DEFAULT 0,
   amount_paid          DECIMAL(10,2) NOT NULL DEFAULT 0,

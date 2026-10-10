@@ -25,6 +25,7 @@ if ($id) {
     $existing = row('SELECT * FROM invoices WHERE id = ? AND user_id = ?', [$id, $uid]);
     if (!$existing) { flash('error', 'Invoice not found.'); redirect('invoices.php'); }
     $inv = $existing;
+    if ($existing['gst_rate'] !== null) $gstRate = (float)$existing['gst_rate'];
     $items = rows('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY position', [$id]);
 } elseif ($fromOrder) {
     $o = row('SELECT o.*, c.email, c.phone, c.address_line_1, c.address_line_2, c.city, c.state, c.postcode FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ? AND o.user_id = ?', [$fromOrder, $uid]);
@@ -91,15 +92,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $params = [
                 $inv['invoice_number'], $inv['customer_id'], $inv['order_id'], $inv['customer_name'], nullable($inv['customer_email']), nullable($inv['customer_phone']), nullable($inv['customer_address']),
-                $inv['status'], $inv['issue_date'], $inv['due_date'], $t['subtotal'], $t['discount'], $inv['gst_enabled'], $t['gst_amount'], $t['total_amount'], $t['amount_paid'], $t['balance_due'],
+                $inv['status'], $inv['issue_date'], $inv['due_date'], $t['subtotal'], $t['discount'], $inv['gst_enabled'], $gstRate, $t['gst_amount'], $t['total_amount'], $t['amount_paid'], $t['balance_due'],
                 nullable($inv['payment_instructions']), nullable($inv['terms_conditions']), nullable($inv['notes']),
             ];
             if ($id) {
-                q('UPDATE invoices SET invoice_number=?, customer_id=?, order_id=?, customer_name=?, customer_email=?, customer_phone=?, customer_address=?, status=?, issue_date=?, due_date=?, subtotal=?, discount=?, gst_enabled=?, gst_amount=?, total_amount=?, amount_paid=?, balance_due=?, payment_instructions=?, terms_conditions=?, notes=? WHERE id=? AND user_id=?', [...$params, $id, $uid]);
+                q('UPDATE invoices SET invoice_number=?, customer_id=?, order_id=?, customer_name=?, customer_email=?, customer_phone=?, customer_address=?, status=?, issue_date=?, due_date=?, subtotal=?, discount=?, gst_enabled=?, gst_rate=?, gst_amount=?, total_amount=?, amount_paid=?, balance_due=?, payment_instructions=?, terms_conditions=?, notes=? WHERE id=? AND user_id=?', [...$params, $id, $uid]);
                 q('DELETE FROM invoice_items WHERE invoice_id = ?', [$id]);
                 $invoiceId = $id;
             } else {
-                q('INSERT INTO invoices (invoice_number, customer_id, order_id, customer_name, customer_email, customer_phone, customer_address, status, issue_date, due_date, subtotal, discount, gst_enabled, gst_amount, total_amount, amount_paid, balance_due, payment_instructions, terms_conditions, notes, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [...$params, $uid]);
+                q('INSERT INTO invoices (invoice_number, customer_id, order_id, customer_name, customer_email, customer_phone, customer_address, status, issue_date, due_date, subtotal, discount, gst_enabled, gst_rate, gst_amount, total_amount, amount_paid, balance_due, payment_instructions, terms_conditions, notes, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [...$params, $uid]);
                 $invoiceId = (int)$pdo->lastInsertId();
             }
             $pos = 1;
@@ -193,6 +194,7 @@ require __DIR__ . '/includes/header.php';
       <h3>Totals</h3>
       <div class="field"><label>Discount (amount)</label><input type="number" name="discount" min="0" step="0.01" value="<?= e($inv['discount']) ?>" data-line></div>
       <label class="check" style="margin-bottom:10px"><input type="checkbox" name="gst_enabled" value="1" <?= (int)$inv['gst_enabled'] ? 'checked' : '' ?> data-line> Add GST (<?= e(rtrim(rtrim(number_format($gstRate, 2), '0'), '.')) ?>%)</label>
+      <?php if ($id && $inv['gst_rate'] === null): ?><p class="help">This older invoice has no saved GST rate. Saving it will recalculate GST using the current <?= e($gstRate) ?>% rate.</p><?php endif; ?>
       <div class="field"><label>Amount already paid</label><input type="number" name="amount_paid" min="0" step="0.01" value="<?= e($inv['amount_paid']) ?>" data-line></div>
       <ul class="list">
         <li><span class="muted">Subtotal</span><span id="s_subtotal">-</span></li>

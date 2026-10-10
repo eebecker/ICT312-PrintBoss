@@ -62,6 +62,10 @@ Change `DB_PASS` only if you gave MySQL's root user a password. Save and close.
 | Login locked | Five wrong passwords | Wait five minutes |
 | Styles missing | Wrong folder name in the URL | Use `http://localhost/printboss/` with the folder name exactly as copied |
 
-## 11.8 Uninstall
+## 11.8 Upgrading an existing installation
+
+For an existing installation upgrading to saved invoice GST rates, back up the database and run `database/migrations/001_invoice_gst_rate.sql` once against the existing `printboss` database before using the updated app. Fresh installations already include the column. Do not reimport `database/printboss.sql` to upgrade: that file replaces the database and its data. Older invoices retain their recorded amounts and display GST without an assumed percentage. Editing and saving one of these older invoices recalculates GST at the current Settings rate; the edit form explains this.
+
+## 11.9 Uninstall
 
 Delete `C:\wamp64\www\printboss` and drop the `printboss` database in phpMyAdmin. PrintBoss writes nothing else to the computer.
