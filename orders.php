@@ -65,6 +65,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'save') {
+        // A new order form can be saved once. PHP holds the session lock until
+        // this request ends, so overlapping submissions use the same check.
+        $submissionToken = post_str('submission_token', 64);
+        if (!$id && !isset($_SESSION['order_submissions'][$submissionToken])) {
+            flash('error', 'This order form was already saved or expired. Please check your orders before trying again.');
+            redirect('orders.php');
+        }
         $customerId = post_id('customer_id');
         $customerName = post_str('customer_name', 120);
         if ($customerId) {
@@ -114,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash('success', 'Order created.');
             }
             $pdo->commit();
+            if (!$id) unset($_SESSION['order_submissions'][$submissionToken]);
         } catch (Throwable $t) {
             $pdo->rollBack();
             flash('error', 'Could not save the order: ' . $t->getMessage());
@@ -131,6 +139,12 @@ $orders = rows('SELECT o.*, s.product_name AS stock_name, s.current_quantity AS 
 $customers = rows('SELECT id, name FROM customers WHERE user_id = ? ORDER BY name', [$uid]);
 $stockItems = rows('SELECT id, product_name, sku, current_quantity, unit_cost, selling_price FROM stock_items WHERE user_id = ? AND status <> "Inactive" ORDER BY product_name', [$uid]);
 $printers = rows('SELECT id, name, status FROM printers WHERE user_id = ? AND is_active = 1 ORDER BY name', [$uid]);
+$submissionToken = bin2hex(random_bytes(32));
+$_SESSION['order_submissions'][$submissionToken] = true;
+// Keep a bounded set so separate tabs work without growing the session forever.
+if (count($_SESSION['order_submissions']) > 100) {
+    array_shift($_SESSION['order_submissions']);
+}
 $sum = ['open' => 0, 'open_value' => 0.0, 'quotes' => 0, 'delivered_value' => 0.0];
 foreach ($orders as $o) {
     if ($o['status'] === 'Quote') $sum['quotes']++;
@@ -191,6 +205,7 @@ require __DIR__ . '/includes/header.php';
 <dialog id="orderDialog" class="dialog-lg">
   <form method="post" action="<?= BASE_PATH ?>/orders.php" id="orderForm" data-currency="<?= e($currency) ?>">
     <?= csrf_field() ?><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="">
+    <input type="hidden" name="submission_token" value="<?= e($submissionToken) ?>">
     <div class="dialog-head"><h3 data-title-create="New order" data-title-edit="Edit order">New order</h3><button type="button" class="icon-btn" data-close aria-label="Close">&times;</button></div>
     <div class="dialog-body">
       <div class="field-row-3">
