@@ -83,8 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $dupe = row('SELECT id FROM invoices WHERE user_id = ? AND invoice_number = ? AND id <> ?', [$uid, $inv['invoice_number'], $id ?? 0]);
     if ($dupe) $errors[] = 'That invoice number is already used.';
 
+    $t = invoice_totals($items, (float)$inv['discount'], (bool)$inv['gst_enabled'], (float)$inv['amount_paid'], $gstRate);
+    if ($t['amount_paid'] > $t['total_amount']) $errors[] = 'Amount paid cannot be more than the invoice total.';
     if (!$errors) {
-        $t = invoice_totals($items, (float)$inv['discount'], (bool)$inv['gst_enabled'], (float)$inv['amount_paid'], $gstRate);
         if ($inv['status'] === 'Paid') { $t['amount_paid'] = $t['total_amount']; $t['balance_due'] = 0.0; }
         elseif ($t['balance_due'] <= 0 && $t['total_amount'] > 0) { $inv['status'] = 'Paid'; }
         $pdo = db();

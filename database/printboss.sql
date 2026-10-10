@@ -23,6 +23,8 @@ CREATE TABLE users (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   email         VARCHAR(190) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
+  failed_login_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  login_locked_until DATETIME NULL,
   full_name     VARCHAR(120) NOT NULL,
   role          ENUM('user','admin') NOT NULL DEFAULT 'user',
   is_active     TINYINT(1) NOT NULL DEFAULT 1,
