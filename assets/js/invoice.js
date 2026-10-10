@@ -4,7 +4,8 @@
   const form = document.getElementById('invoiceForm');
   if (!form) return;
   const sym = { AUD: 'A$', USD: '$', EUR: '€', GBP: '£', NZD: 'NZ$', BRL: 'R$' }[form.getAttribute('data-currency')] || '$';
-  const gstRate = parseFloat(form.getAttribute('data-gst')) || 10;
+  const parsedGstRate = parseFloat(form.getAttribute('data-gst'));
+  const gstRate = Number.isFinite(parsedGstRate) ? parsedGstRate : 10;
   const tbody = document.querySelector('#lineTable tbody');
   const round2 = function (n) { return Math.round(n * 100) / 100; };
 
