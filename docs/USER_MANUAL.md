@@ -67,7 +67,7 @@ Back in the list, click **Mark sent** when you email it, **Payment** to record a
 
 ## 12.9 Dashboard
 
-Start each day on the **Dashboard**. It shows revenue and profit this month, active orders, average margin, outstanding invoices, printer status, jobs in progress, printers due for service and low material. Two charts show six months of revenue, profit and order counts. Alerts link to the page where you fix them.
+Start each day on the **Dashboard**. It shows accepted order value and estimated profit this month, active orders, average margin, outstanding invoices, printer status, jobs in progress, printers due for service and low material. Quotes and cancelled orders are excluded from the order value, profit, average margin and best sellers. Two charts show six months of accepted order value, estimated profit and accepted order counts, grouped by the order creation date. These are order values, not payments received. Alerts link to the page where you fix them.
 
 ## 12.10 Your account and privacy
 
