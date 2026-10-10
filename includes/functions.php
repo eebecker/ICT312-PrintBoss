@@ -241,6 +241,29 @@ function next_invoice_number(int $uid, string $prefix): string
  * Printers and print jobs
  * ------------------------------------------------------------- */
 
+/** Start an order from a printer job within the caller's transaction. */
+function start_order_printing(int $uid, int $orderId, int $printerId): array
+{
+    $order = row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$orderId, $uid]);
+    if (!$order) throw new RuntimeException('Order not found.');
+    if (in_array($order['status'], ['Quote', 'Approved'], true)) {
+        $deducted = (int)$order['stock_deducted'];
+        if ($order['stock_item_id']) {
+            $stockId = (int)$order['stock_item_id'];
+            $stock = row('SELECT current_quantity FROM stock_items WHERE id = ? AND user_id = ? FOR UPDATE', [$stockId, $uid]);
+            if (!$stock) throw new RuntimeException('Stock product not found.');
+            $needed = (int)$order['order_quantity'] - $deducted;
+            if ($needed > (int)$stock['current_quantity']) throw new RuntimeException('Not enough stock available.');
+            if ($needed !== 0) {
+                move_stock($uid, $stockId, -$needed, 'Order Updated', ['order_id' => $orderId], "Order #{$orderId} started printing");
+            }
+            $deducted = (int)$order['order_quantity'];
+        }
+        q('UPDATE orders SET status = "Printing", printer_id = ?, stock_deducted = ? WHERE id = ? AND user_id = ?', [$printerId, $deducted, $orderId, $uid]);
+    }
+    return $order;
+}
+
 function printer_set_status(int $printerId, string $status, ?int $jobId = null): void
 {
     q('UPDATE printers SET status = ?, current_job_id = ? WHERE id = ?', [$status, $jobId, $printerId]);

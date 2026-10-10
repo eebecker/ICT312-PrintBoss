@@ -104,28 +104,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $minutes = max(1, post_int('estimated_duration_minutes', 60));
         $startNow = post_str('when', 10) !== 'schedule';
         $status = $startNow ? 'Printing' : 'Scheduled';
-        q('INSERT INTO print_jobs (user_id, printer_id, source_type, stock_item_id, order_id, inventory_id, custom_job_name, customer_or_purpose, status, planned_quantity, material_used, estimated_material_quantity, estimated_duration_minutes, started_at, estimated_completion_at, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-            $uid, (int)$p['id'], $source, $stockId, $orderId, $inventoryId, $customName, nullable(post_str('customer_or_purpose', 120)), $status,
-            max(1, post_int('planned_quantity', 1)), nullable(post_str('material_used', 40)), post_num('estimated_material_quantity') ?: null, $minutes,
-            $startNow ? date('Y-m-d H:i:s') : null, $startNow ? date('Y-m-d H:i:s', time() + $minutes * 60) : null, nullable(post_str('notes', 1000)),
-        ]);
-        $jobId = (int)db()->lastInsertId();
-        printer_set_status((int)$p['id'], $status, $jobId);
-        if ($order && $startNow && in_array($order['status'], ['Quote', 'Approved'], true)) {
-            q('UPDATE orders SET status = "Printing", printer_id = ? WHERE id = ?', [(int)$p['id'], $orderId]);
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            if ($orderId) {
+                // Refresh the order while locked, so the job uses its current product.
+                $order = $startNow ? start_order_printing($uid, $orderId, (int)$p['id']) : row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$orderId, $uid]);
+                if (!$order) throw new RuntimeException('Order not found.');
+                $stockId = $order['stock_item_id'] ? (int)$order['stock_item_id'] : null;
+            }
+            q('INSERT INTO print_jobs (user_id, printer_id, source_type, stock_item_id, order_id, inventory_id, custom_job_name, customer_or_purpose, status, planned_quantity, material_used, estimated_material_quantity, estimated_duration_minutes, started_at, estimated_completion_at, notes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+                $uid, (int)$p['id'], $source, $stockId, $orderId, $inventoryId, $customName, nullable(post_str('customer_or_purpose', 120)), $status,
+                max(1, post_int('planned_quantity', 1)), nullable(post_str('material_used', 40)), post_num('estimated_material_quantity') ?: null, $minutes,
+                $startNow ? date('Y-m-d H:i:s') : null, $startNow ? date('Y-m-d H:i:s', time() + $minutes * 60) : null, nullable(post_str('notes', 1000)),
+            ]);
+            $jobId = (int)db()->lastInsertId();
+            printer_set_status((int)$p['id'], $status, $jobId);
+            $pdo->commit();
+            flash('success', $startNow ? 'Print job started.' : 'Print job scheduled.');
+        } catch (Throwable $t) {
+            $pdo->rollBack();
+            flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not save the print job. No stock was changed.');
         }
-        flash('success', $startNow ? 'Print job started.' : 'Print job scheduled.');
         redirect('printers.php');
     }
 
     if (in_array($action, ['begin_job', 'pause_job', 'resume_job', 'finish_job', 'cancel_job'], true) && ($job = own_job($uid, $id))) {
         $now = date('Y-m-d H:i:s');
         if ($action === 'begin_job' && $job['status'] === 'Scheduled') {
-            q('UPDATE print_jobs SET status = "Printing", started_at = ?, estimated_completion_at = ? WHERE id = ?', [$now, date('Y-m-d H:i:s', time() + (int)$job['estimated_duration_minutes'] * 60), $id]);
-            printer_set_status((int)$job['printer_id'], 'Printing', $id);
-            if ($job['order_id']) q('UPDATE orders SET status = "Printing", printer_id = ? WHERE id = ? AND status IN ("Quote","Approved")', [(int)$job['printer_id'], (int)$job['order_id']]);
-            flash('success', 'Print job started.');
+            $pdo = db();
+            $pdo->beginTransaction();
+            try {
+                if ($job['order_id']) {
+                    $order = start_order_printing($uid, (int)$job['order_id'], (int)$job['printer_id']);
+                    q('UPDATE print_jobs SET stock_item_id = ? WHERE id = ? AND user_id = ?', [$order['stock_item_id'], $id, $uid]);
+                }
+                q('UPDATE print_jobs SET status = "Printing", started_at = ?, estimated_completion_at = ? WHERE id = ?', [$now, date('Y-m-d H:i:s', time() + (int)$job['estimated_duration_minutes'] * 60), $id]);
+                printer_set_status((int)$job['printer_id'], 'Printing', $id);
+                $pdo->commit();
+                flash('success', 'Print job started.');
+            } catch (Throwable $t) {
+                $pdo->rollBack();
+                flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not start the print job. No stock was changed.');
+            }
         } elseif ($action === 'pause_job' && $job['status'] === 'Printing') {
             q('UPDATE print_jobs SET status = "Paused", paused_at = ? WHERE id = ?', [$now, $id]);
             printer_set_status((int)$job['printer_id'], 'Paused', $id);
