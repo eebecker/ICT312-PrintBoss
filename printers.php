@@ -18,6 +18,24 @@ function own_job(int $uid, ?int $id): ?array
     return $id ? row('SELECT * FROM print_jobs WHERE id = ? AND user_id = ?', [$id, $uid]) : null;
 }
 
+/** Lock the printer before changing its job, within the caller's transaction. */
+function lock_printer_job(int $uid, int $printerId, ?int $jobId = null, bool $startingScheduled = false): array
+{
+    $printer = row('SELECT * FROM printers WHERE id = ? AND user_id = ? FOR UPDATE', [$printerId, $uid]);
+    if (!$printer) throw new RuntimeException('Printer not found.');
+    if ($jobId) {
+        if ((int)$printer['current_job_id'] !== $jobId && !($startingScheduled && $printer['status'] === 'Available' && !$printer['current_job_id'])) {
+            throw new RuntimeException('This is no longer the current job for that printer.');
+        }
+    } elseif ($printer['status'] !== 'Available' || $printer['current_job_id']) {
+        throw new RuntimeException('That printer is not available. Finish the current job first.');
+    }
+    if ((!$jobId || $startingScheduled) && row('SELECT id FROM print_jobs WHERE printer_id = ? AND user_id = ? AND id <> ? AND status IN ("Printing", "Paused", "Awaiting Confirmation") LIMIT 1', [$printerId, $uid, $jobId ?? 0])) {
+        throw new RuntimeException('That printer is not available. Finish the current job first.');
+    }
+    return $printer;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = post_str('action', 30);
@@ -82,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     /* ---------- print jobs ---------- */
     if ($action === 'start_job' && ($p = own_printer($uid, post_id('printer_id')))) {
-        if (!in_array($p['status'], ['Available', 'Scheduled'], true)) {
+        if ($p['status'] !== 'Available') {
             flash('error', 'That printer is not available. Finish the current job first.');
             redirect('printers.php');
         }
@@ -107,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo = db();
         $pdo->beginTransaction();
         try {
+            lock_printer_job($uid, (int)$p['id']);
             if ($orderId) {
                 // Refresh the order while locked, so the job uses its current product.
                 $order = $startNow ? start_order_printing($uid, $orderId, (int)$p['id']) : row('SELECT * FROM orders WHERE id = ? AND user_id = ? FOR UPDATE', [$orderId, $uid]);
@@ -131,41 +150,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (in_array($action, ['begin_job', 'pause_job', 'resume_job', 'finish_job', 'cancel_job'], true) && ($job = own_job($uid, $id))) {
-        $now = date('Y-m-d H:i:s');
-        if ($action === 'begin_job' && $job['status'] === 'Scheduled') {
-            $pdo = db();
-            $pdo->beginTransaction();
-            try {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            lock_printer_job($uid, (int)$job['printer_id'], $id, $action === 'begin_job');
+            $job = row('SELECT * FROM print_jobs WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
+            $now = date('Y-m-d H:i:s');
+            if ($action === 'begin_job' && $job['status'] === 'Scheduled') {
                 if ($job['order_id']) {
                     $order = start_order_printing($uid, (int)$job['order_id'], (int)$job['printer_id']);
                     q('UPDATE print_jobs SET stock_item_id = ? WHERE id = ? AND user_id = ?', [$order['stock_item_id'], $id, $uid]);
                 }
                 q('UPDATE print_jobs SET status = "Printing", started_at = ?, estimated_completion_at = ? WHERE id = ?', [$now, date('Y-m-d H:i:s', time() + (int)$job['estimated_duration_minutes'] * 60), $id]);
                 printer_set_status((int)$job['printer_id'], 'Printing', $id);
-                $pdo->commit();
+
                 flash('success', 'Print job started.');
-            } catch (Throwable $t) {
-                $pdo->rollBack();
-                flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not start the print job. No stock was changed.');
+            } elseif ($action === 'pause_job' && $job['status'] === 'Printing') {
+                q('UPDATE print_jobs SET status = "Paused", paused_at = ? WHERE id = ?', [$now, $id]);
+                printer_set_status((int)$job['printer_id'], 'Paused', $id);
+                flash('success', 'Job paused.');
+            } elseif ($action === 'resume_job' && $job['status'] === 'Paused') {
+                $pausedFor = $job['paused_at'] ? time() - strtotime($job['paused_at']) : 0;
+                q('UPDATE print_jobs SET status = "Printing", paused_at = NULL, total_paused_seconds = total_paused_seconds + ? WHERE id = ?', [max(0, $pausedFor), $id]);
+                printer_set_status((int)$job['printer_id'], 'Printing', $id);
+                flash('success', 'Job resumed.');
+            } elseif ($action === 'finish_job' && in_array($job['status'], ['Printing', 'Paused'], true)) {
+                $pausedFor = $job['status'] === 'Paused' && $job['paused_at'] ? time() - strtotime($job['paused_at']) : 0;
+                q('UPDATE print_jobs SET status = "Awaiting Confirmation", completed_at = ?, paused_at = NULL, total_paused_seconds = total_paused_seconds + ? WHERE id = ?', [$now, max(0, $pausedFor), $id]);
+                printer_set_status((int)$job['printer_id'], 'Awaiting Confirmation', $id);
+                flash('success', 'Print finished. Confirm how many units came out well.');
+            } elseif ($action === 'cancel_job' && in_array($job['status'], ['Scheduled', 'Printing', 'Paused', 'Awaiting Confirmation'], true)) {
+                q('UPDATE print_jobs SET status = "Cancelled", completed_at = COALESCE(completed_at, ?) WHERE id = ?', [$now, $id]);
+                printer_set_status((int)$job['printer_id'], 'Available', null);
+                flash('success', 'Job cancelled.');
             }
-        } elseif ($action === 'pause_job' && $job['status'] === 'Printing') {
-            q('UPDATE print_jobs SET status = "Paused", paused_at = ? WHERE id = ?', [$now, $id]);
-            printer_set_status((int)$job['printer_id'], 'Paused', $id);
-            flash('success', 'Job paused.');
-        } elseif ($action === 'resume_job' && $job['status'] === 'Paused') {
-            $pausedFor = $job['paused_at'] ? time() - strtotime($job['paused_at']) : 0;
-            q('UPDATE print_jobs SET status = "Printing", paused_at = NULL, total_paused_seconds = total_paused_seconds + ? WHERE id = ?', [max(0, $pausedFor), $id]);
-            printer_set_status((int)$job['printer_id'], 'Printing', $id);
-            flash('success', 'Job resumed.');
-        } elseif ($action === 'finish_job' && in_array($job['status'], ['Printing', 'Paused'], true)) {
-            $pausedFor = $job['status'] === 'Paused' && $job['paused_at'] ? time() - strtotime($job['paused_at']) : 0;
-            q('UPDATE print_jobs SET status = "Awaiting Confirmation", completed_at = ?, paused_at = NULL, total_paused_seconds = total_paused_seconds + ? WHERE id = ?', [$now, max(0, $pausedFor), $id]);
-            printer_set_status((int)$job['printer_id'], 'Awaiting Confirmation', $id);
-            flash('success', 'Print finished. Confirm how many units came out well.');
-        } elseif ($action === 'cancel_job' && in_array($job['status'], ['Scheduled', 'Printing', 'Paused', 'Awaiting Confirmation'], true)) {
-            q('UPDATE print_jobs SET status = "Cancelled", completed_at = COALESCE(completed_at, ?) WHERE id = ?', [$now, $id]);
-            printer_set_status((int)$job['printer_id'], 'Available', null);
-            flash('success', 'Job cancelled.');
+            $pdo->commit();
+        } catch (Throwable $t) {
+            $pdo->rollBack();
+            flash('error', $t instanceof RuntimeException && !($t instanceof PDOException) ? $t->getMessage() : 'Could not update the print job. Please try again.');
         }
         redirect('printers.php');
     }
@@ -180,6 +202,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo = db();
         $pdo->beginTransaction();
         try {
+            lock_printer_job($uid, (int)$job['printer_id'], $id);
+            $job = row('SELECT * FROM print_jobs WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
+            if (!$job || $job['status'] !== 'Awaiting Confirmation') throw new RuntimeException('This job is no longer awaiting confirmation.');
             $now = date('Y-m-d H:i:s');
             q('UPDATE print_jobs SET status = ?, successful_quantity = ?, failed_quantity = ?, wasted_material = ?, failure_reason = ?, confirmed_at = ?, stock_update_completed = 1 WHERE id = ?',
                 [$status, $ok, $failed, $wasted, $reason, $now, $id]);

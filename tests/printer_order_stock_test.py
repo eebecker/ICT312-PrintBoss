@@ -49,6 +49,9 @@ with sync_playwright() as p:
     csrf = page.locator('input[name=csrf_token]').first.input_value()
 
     def post(path, **data):
+        if path == 'orders.php' and data.get('action') == 'save' and not data.get('id'):
+            page.goto(BASE + '/orders.php')
+            data['submission_token'] = page.locator('#orderForm [name=submission_token]').input_value()
         response = page.request.post(BASE + '/' + path, form=dict(data, csrf_token=csrf))
         assert response.status == 200
         return response.text()
