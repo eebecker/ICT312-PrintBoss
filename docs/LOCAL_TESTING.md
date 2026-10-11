@@ -72,6 +72,25 @@ python tests\e2e_test.py
 
 Expect `40/40 checks passed`. Screenshots of every page land in `tests\screenshots\`. A `FAIL` line names the check; the test stops at the first hard error with a Playwright trace in the console.
 
+## 6b. Focused regression suites (optional, about 10 minutes)
+
+Eight extra Playwright scripts cover stock reservation edge cases, duplicate orders, printer job conflicts, GST handling, dashboard totals and login lockout. They inject temporary database failures with triggers and create throwaway accounts, so run them only on this disposable local database. Re-import the SQL before each one.
+
+```powershell
+$env:PRINTBOSS_TESTING = "1"
+$env:PRINTBOSS_TEST_URL = "http://localhost/printboss"   # same URL as above
+$env:PRINTBOSS_TEST_MYSQL = "mysql"
+$env:PRINTBOSS_TEST_DB_PORT = "3306"
+$env:PRINTBOSS_TEST_DB_NAME = "printboss"
+$env:PRINTBOSS_TEST_OUTPUT = "$env:TEMP\printboss-tests"
+foreach ($t in "stock_regression","duplicate_orders_test","printer_order_stock_test","printer_job_conflicts_test","dashboard_quotes_test","invoice_gst_preview_test","invoice_saved_gst_test","remaining_issues_test") {
+  mysql -u root < database\printboss.sql
+  python tests\$t.py
+}
+```
+
+Expect every script to end with `N/N passed` and exit code 0 (12, 9, 9, 13, 8, 15, 9 and 23 checks).
+
 ## 7. Manual smoke test (10 minutes)
 
 | Step | Where | Expect |
