@@ -72,8 +72,8 @@ require __DIR__ . '/includes/header.php';
   <?php if ($inv['payment_instructions'] || $profile['bank_bsb']): ?>
     <div style="margin-top:28px"><div class="meta small" style="text-transform:uppercase;letter-spacing:.08em">Payment</div>
       <pre><?= e($inv['payment_instructions']) ?></pre>
-      <?php if ($profile['bank_bsb'] || $profile['bank_account_number']): ?><pre>Bank: <?= e($profile['bank_name']) ?>
-Account name: <?= e($profile['bank_account_name'] ?: $profile['business_name']) ?>
+      <?php if ($profile['bank_bsb'] || $profile['bank_account_number']): ?><pre>Bank: <?= e($profile['bank_name']) . "\n" ?>
+Account name: <?= e($profile['bank_account_name'] ?: $profile['business_name']) . "\n" ?>
 BSB: <?= e($profile['bank_bsb']) ?>   Account: <?= e($profile['bank_account_number']) ?></pre><?php endif; ?>
     </div>
   <?php endif; ?>
