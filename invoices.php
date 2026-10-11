@@ -27,11 +27,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', 'Invoice ' . $inv['invoice_number'] . ' marked as ' . $status . '.');
         }
     } elseif ($action === 'payment' && $inv) {
-        $amount = max(0, post_num('amount'));
-        $paid = min((float)$inv['total_amount'], (float)$inv['amount_paid'] + $amount);
-        $balance = round((float)$inv['total_amount'] - $paid, 2);
-        q('UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ? WHERE id = ?', [$paid, $balance, $balance <= 0 ? 'Paid' : $inv['status'], $id]);
-        flash('success', 'Payment of ' . money($amount, $currency) . ' recorded.');
+        $amount = round(post_num('amount'), 2);
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $inv = row('SELECT * FROM invoices WHERE id = ? AND user_id = ? FOR UPDATE', [$id, $uid]);
+            $remaining = $inv ? round((float)$inv['total_amount'] - (float)$inv['amount_paid'], 2) : 0;
+            if (!$inv || $amount <= 0 || $amount > $remaining) {
+                $pdo->rollBack();
+                flash('error', 'Payment must be greater than zero and cannot exceed the remaining balance.');
+            } else {
+                $paid = round((float)$inv['amount_paid'] + $amount, 2);
+                $balance = round((float)$inv['total_amount'] - $paid, 2);
+                q('UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ? WHERE id = ? AND user_id = ?', [$paid, $balance, $balance <= 0 ? 'Paid' : $inv['status'], $id, $uid]);
+                $pdo->commit();
+                flash('success', 'Payment of ' . money($amount, $currency) . ' recorded.');
+            }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Invoice payment failed: ' . $e->getMessage());
+            flash('error', 'Could not record the payment. Please try again.');
+        }
     }
     redirect('invoices.php');
 }

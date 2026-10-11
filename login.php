@@ -19,17 +19,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($email === '' || $password === '') {
         $errors[] = 'Email and password are required.';
     } else {
-        $u = row('SELECT * FROM users WHERE email = ?', [$email]);
-        if ($u && (int)$u['is_active'] === 1 && password_verify($password, $u['password_hash'])) {
-            if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
-                q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_DEFAULT), $u['id']]);
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            // Lock the account row so separate browsers share one failure counter.
+            $u = row('SELECT *, (login_locked_until > NOW()) AS account_locked FROM users WHERE email = ? FOR UPDATE', [$email]);
+            if ($u && (int)$u['account_locked'] === 1) {
+                $pdo->commit();
+                $errors[] = 'Too many failed attempts. Please wait a few minutes and try again.';
+            } elseif ($u && (int)$u['is_active'] === 1 && password_verify($password, $u['password_hash'])) {
+                if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
+                    q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_DEFAULT), $u['id']]);
+                }
+                q('UPDATE users SET failed_login_attempts = 0, login_locked_until = NULL WHERE id = ?', [$u['id']]);
+                $pdo->commit();
+                login_user($u);
+                flash('success', 'Welcome back, ' . $u['full_name'] . '!');
+                redirect('dashboard.php');
+            } else {
+                if ($u) {
+                    // An expired lock starts a fresh set of attempts.
+                    $attempts = $u['login_locked_until'] !== null ? 1 : (int)$u['failed_login_attempts'] + 1;
+                    q('UPDATE users SET failed_login_attempts = ?, login_locked_until = CASE WHEN ? THEN DATE_ADD(NOW(), INTERVAL ? SECOND) ELSE NULL END WHERE id = ?', [
+                        $attempts, $attempts >= LOGIN_MAX_ATTEMPTS ? 1 : 0, LOGIN_LOCK_SECONDS, $u['id'],
+                    ]);
+                }
+                $pdo->commit();
+                login_record_failure();
+                $errors[] = 'Incorrect email or password.';
             }
-            login_user($u);
-            flash('success', 'Welcome back, ' . $u['full_name'] . '!');
-            redirect('dashboard.php');
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Login failed: ' . $e->getMessage());
+            $errors[] = 'Could not sign in. Please try again.';
         }
-        login_record_failure();
-        $errors[] = 'Incorrect email or password.';
     }
 }
 $flash = take_flash();

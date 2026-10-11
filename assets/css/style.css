@@ -105,6 +105,7 @@ p { margin: 0 0 .75rem; }
 .card-title h2, .card-title h3 { margin: 0; }
 .card-highlight { background: linear-gradient(135deg, rgba(245,154,60,.18), rgba(245,154,60,.03)); border-color: rgba(245,154,60,.4); box-shadow: var(--glow); }
 .grid { display: grid; gap: 16px; }
+.grid > * { min-width: 0; }
 .grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .grid-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
@@ -231,7 +232,8 @@ dialog.dialog-lg { width: min(900px, calc(100vw - 32px)); }
 .list li:last-child { border-bottom: 0; }
 
 /* ---------- printers ---------- */
-.printer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.printer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.printer-card { min-width: 0; overflow-wrap: anywhere; }
 .printer-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
 .printer-card.is-printing { border-color: rgba(245,154,60,.5); box-shadow: var(--glow); }
 .printer-card.is-maint { border-color: rgba(242,193,78,.45); }
