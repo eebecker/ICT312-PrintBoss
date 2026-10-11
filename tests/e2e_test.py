@@ -2,7 +2,7 @@
 import os, re, sys
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:8080"
+BASE = os.environ.get("PRINTBOSS_URL", "http://127.0.0.1:8080").rstrip("/")
 SHOTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
 os.makedirs(SHOTS, exist_ok=True)
 results = []
