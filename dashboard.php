@@ -14,14 +14,14 @@ $orderStats = row(
         SUM(CASE WHEN status NOT IN ("Delivered","Cancelled","Quote") THEN 1 ELSE 0 END) AS active,
         SUM(CASE WHEN status = "Quote" THEN 1 ELSE 0 END) AS quotes,
         SUM(CASE WHEN status = "Delivered" THEN 1 ELSE 0 END) AS delivered,
-        SUM(CASE WHEN created_at >= ? AND status <> "Cancelled" THEN total_selling_price ELSE 0 END) AS month_revenue,
-        SUM(CASE WHEN created_at >= ? AND status <> "Cancelled" THEN total_profit ELSE 0 END) AS month_profit,
-        AVG(CASE WHEN status <> "Cancelled" AND total_selling_price > 0 THEN total_profit / total_selling_price * 100 END) AS avg_margin
+        SUM(CASE WHEN created_at >= ? AND status NOT IN ("Quote","Cancelled") THEN total_selling_price ELSE 0 END) AS month_revenue,
+        SUM(CASE WHEN created_at >= ? AND status NOT IN ("Quote","Cancelled") THEN total_profit ELSE 0 END) AS month_profit,
+        AVG(CASE WHEN status NOT IN ("Quote","Cancelled") AND total_selling_price > 0 THEN total_profit / total_selling_price * 100 END) AS avg_margin
      FROM orders WHERE user_id = ?',
     [$monthStart, $monthStart, $uid]
 );
-$topSelling = row('SELECT product_name, SUM(order_quantity) AS qty FROM orders WHERE user_id = ? AND status <> "Cancelled" GROUP BY product_name ORDER BY qty DESC LIMIT 1', [$uid]);
-$mostProfitable = row('SELECT product_name, SUM(total_profit) AS p FROM orders WHERE user_id = ? AND status <> "Cancelled" GROUP BY product_name ORDER BY p DESC LIMIT 1', [$uid]);
+$topSelling = row('SELECT product_name, SUM(order_quantity) AS qty FROM orders WHERE user_id = ? AND status NOT IN ("Quote","Cancelled") GROUP BY product_name ORDER BY qty DESC LIMIT 1', [$uid]);
+$mostProfitable = row('SELECT product_name, SUM(total_profit) AS p FROM orders WHERE user_id = ? AND status NOT IN ("Quote","Cancelled") GROUP BY product_name ORDER BY p DESC LIMIT 1', [$uid]);
 
 /* ---------- 6 month series ---------- */
 $series = [];
@@ -30,7 +30,7 @@ for ($k = 5; $k >= 0; $k--) {
     $start->setTime(0, 0);
     $end = (clone $start)->modify('+1 month');
     $r = row('SELECT COALESCE(SUM(total_selling_price),0) AS revenue, COALESCE(SUM(total_profit),0) AS profit, COUNT(*) AS n
-              FROM orders WHERE user_id = ? AND status <> "Cancelled" AND created_at >= ? AND created_at < ?',
+              FROM orders WHERE user_id = ? AND status NOT IN ("Quote","Cancelled") AND created_at >= ? AND created_at < ?',
         [$uid, $start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')]);
     $series[] = ['month' => $start->format('M'), 'revenue' => (float)$r['revenue'], 'profit' => (float)$r['profit'], 'orders' => (int)$r['n']];
 }
@@ -78,9 +78,9 @@ require __DIR__ . '/includes/header.php';
 ?>
 
 <div class="grid grid-4">
-  <div class="stat accent"><div class="stat-label">Revenue this month</div><div class="stat-value"><?= money($orderStats['month_revenue'], $currency) ?></div><div class="stat-sub">Profit <?= money($orderStats['month_profit'], $currency) ?></div></div>
+  <div class="stat accent"><div class="stat-label">Accepted order value this month</div><div class="stat-value"><?= money($orderStats['month_revenue'], $currency) ?></div><div class="stat-sub">Estimated profit <?= money($orderStats['month_profit'], $currency) ?></div></div>
   <div class="stat"><div class="stat-label">Active orders</div><div class="stat-value"><?= (int)$orderStats['active'] ?></div><div class="stat-sub"><?= (int)$orderStats['quotes'] ?> open quotes &middot; <?= (int)$orderStats['delivered'] ?> delivered</div></div>
-  <div class="stat"><div class="stat-label">Average margin</div><div class="stat-value"><?= pct($orderStats['avg_margin']) ?></div><div class="stat-sub">across all orders</div></div>
+  <div class="stat"><div class="stat-label">Average margin</div><div class="stat-value"><?= pct($orderStats['avg_margin']) ?></div><div class="stat-sub">across accepted orders</div></div>
   <div class="stat"><div class="stat-label">Outstanding invoices</div><div class="stat-value"><?= money($inv['outstanding'], $currency) ?></div><div class="stat-sub"><?= (int)$inv['unpaid'] ?> unpaid &middot; <span class="<?= (int)$inv['overdue'] > 0 ? 'text-danger' : '' ?>"><?= (int)$inv['overdue'] ?> overdue</span></div></div>
 </div>
 
@@ -94,12 +94,12 @@ require __DIR__ . '/includes/header.php';
 
 <div class="grid grid-main" style="margin-top:16px">
   <div class="card">
-    <div class="card-title"><h3>Revenue &amp; profit (last 6 months)</h3></div>
+    <div class="card-title"><h3>Accepted order value &amp; estimated profit (last 6 months)</h3></div>
     <canvas class="chart" id="revenueChart" data-series='<?= e(json_encode($series)) ?>' data-currency="<?= e($currency) ?>"></canvas>
-    <div class="legend"><span><i style="background:var(--primary)"></i>Revenue</span><span><i style="background:var(--success)"></i>Profit</span></div>
+    <div class="legend"><span><i style="background:var(--primary)"></i>Order value</span><span><i style="background:var(--success)"></i>Estimated profit</span></div>
   </div>
   <div class="card">
-    <div class="card-title"><h3>Orders per month</h3></div>
+    <div class="card-title"><h3>Accepted orders per month</h3></div>
     <canvas class="chart" id="ordersChart"></canvas>
   </div>
 </div>
